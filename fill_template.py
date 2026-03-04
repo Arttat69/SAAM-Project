@@ -3,14 +3,19 @@
 # Automatically fills Template-for-Part-I-SAAM.xlsx with results
 # ============================================================
 
+import os
 import pandas as pd
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.cell.cell import MergedCell
 from datetime import datetime
 
 print("=" * 60)
 print("TEMPLATE FILLER FOR PART I")
 print("=" * 60)
+
+# directory where Part I results CSVs are stored
+RESULTS_DIR = "resultsPart1"
 
 # ============================================================
 # 1. LOAD RESULTS
@@ -18,20 +23,23 @@ print("=" * 60)
 
 print("\n[1] Loading results from CSV files...")
 
+results_path = os.path.join(RESULTS_DIR, "part1_results.csv")
+summary_path = os.path.join(RESULTS_DIR, "part1_summary_statistics.csv")
+
 try:
-    results = pd.read_csv('part1_results.csv')
+    results = pd.read_csv(results_path)
     results['Date'] = pd.to_datetime(results['Date'])
-    print(f"   ✓ Loaded results: {len(results)} months")
+    print(f"   ✓ Loaded results from '{results_path}': {len(results)} months")
 except FileNotFoundError:
-    print("   ✗ Error: part1_results.csv not found!")
-    print("   Run 'python saam_part1_complete.py' first.")
+    print(f"   ✗ Error: '{results_path}' not found!")
+    print("   Make sure you have run the Part I script and that the resultsPart1 folder exists.")
     exit(1)
 
 try:
-    summary = pd.read_csv('part1_summary_statistics.csv', index_col=0)
-    print(f"   ✓ Loaded summary statistics")
+    summary = pd.read_csv(summary_path, index_col=0)
+    print(f"   ✓ Loaded summary statistics from '{summary_path}'")
 except FileNotFoundError:
-    print("   ✗ Error: part1_summary_statistics.csv not found!")
+    print(f"   ✗ Error: '{summary_path}' not found!")
     exit(1)
 
 # ============================================================
@@ -41,7 +49,7 @@ except FileNotFoundError:
 print("\n[2] Loading template...")
 
 try:
-    wb = openpyxl.load_workbook('Template-for-Part-I-SAAM.xlsx')
+    wb = openpyxl.load_workbook('Template for Part I-SAAM.xlsx')
     print(f"   ✓ Template loaded")
     print(f"   Sheets found: {wb.sheetnames}")
 except FileNotFoundError:
@@ -118,6 +126,23 @@ col_date = 1  # Column A
 col_mv_return = 2  # Column B
 col_vw_return = 3  # Column C
 
+# Ensure data_start_row is not inside a merged region
+while True:
+    coords = [
+        ws.cell(data_start_row, col_date).coordinate,
+        ws.cell(data_start_row, col_mv_return).coordinate,
+        ws.cell(data_start_row, col_vw_return).coordinate,
+    ]
+    in_merged = any(
+        coord in merged_range
+        for merged_range in ws.merged_cells.ranges
+        for coord in coords
+    )
+    if in_merged:
+        data_start_row += 1
+    else:
+        break
+
 # Write headers (if not already present)
 ws.cell(header_row, col_date, "Date")
 ws.cell(header_row, col_mv_return, "MV Portfolio Return")
@@ -136,13 +161,21 @@ for col in [col_date, col_mv_return, col_vw_return]:
 # Write data
 for idx, row in results.iterrows():
     excel_row = data_start_row + idx
-    
+
+    # Skip down if this row's target cells are part of a merged region
+    while (
+        isinstance(ws.cell(excel_row, col_date), MergedCell)
+        or isinstance(ws.cell(excel_row, col_mv_return), MergedCell)
+        or isinstance(ws.cell(excel_row, col_vw_return), MergedCell)
+    ):
+        excel_row += 1
+
     # Date
     ws.cell(excel_row, col_date, row['Date'])
-    
+
     # MV Return
     ws.cell(excel_row, col_mv_return, row['MV_Return'])
-    
+
     # VW Return
     ws.cell(excel_row, col_vw_return, row['VW_Return'])
 

@@ -3,11 +3,13 @@
 # Creates plots and fills Template for Part I-SAAM.xlsx
 # ============================================================
 
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
 
 # Set style
 sns.set_style("whitegrid")
@@ -18,17 +20,26 @@ print("=" * 60)
 print("PART I: VISUALIZATION & TEMPLATE FILLER")
 print("=" * 60)
 
+# directories
+RESULTS_DIR = "resultsPart1"
+OUTPUT_DIR = "part1_outputs"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 # ============================================================
 # 1. LOAD RESULTS
 # ============================================================
 
 print("\n[1] Loading results...")
-results = pd.read_csv('part1_results.csv')
+
+results_path = os.path.join(RESULTS_DIR, "part1_results.csv")
+summary_path = os.path.join(RESULTS_DIR, "part1_summary_statistics.csv")
+
+results = pd.read_csv(results_path)
 results['Date'] = pd.to_datetime(results['Date'])
 
-summary = pd.read_csv('part1_summary_statistics.csv', index_col=0)
+summary = pd.read_csv(summary_path, index_col=0)
 
-print(f"   Results loaded: {len(results)} months")
+print(f"   Results loaded from '{results_path}': {len(results)} months")
 print(f"   Date range: {results['Date'].min()} to {results['Date'].max()}")
 
 # ============================================================
@@ -62,8 +73,9 @@ ax.text(0.02, 0.98,
         verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
 plt.tight_layout()
-plt.savefig('cumulative_returns_plot.png', dpi=300, bbox_inches='tight')
-print("   ✅ Saved: cumulative_returns_plot.png")
+cum_plot_path = os.path.join(OUTPUT_DIR, "cumulative_returns_plot.png")
+plt.savefig(cum_plot_path, dpi=300, bbox_inches='tight')
+print(f"   ✅ Saved: {cum_plot_path}")
 
 # ============================================================
 # 3. CREATE ADDITIONAL PLOTS
@@ -95,8 +107,9 @@ axes[1].legend()
 axes[1].grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('additional_analysis_plots.png', dpi=300, bbox_inches='tight')
-print("   ✅ Saved: additional_analysis_plots.png")
+add_plot_path = os.path.join(OUTPUT_DIR, "additional_analysis_plots.png")
+plt.savefig(add_plot_path, dpi=300, bbox_inches='tight')
+print(f"   ✅ Saved: {add_plot_path}")
 
 # ============================================================
 # 4. SUMMARY TABLE FOR REPORT
@@ -118,8 +131,9 @@ print("SUMMARY STATISTICS")
 print("=" * 60)
 print(summary_formatted.to_string())
 
-summary_formatted.to_csv('summary_table_formatted.csv')
-print("\n✅ Saved: summary_table_formatted.csv")
+summary_table_path = os.path.join(OUTPUT_DIR, "summary_table_formatted.csv")
+summary_formatted.to_csv(summary_table_path)
+print(f"\n✅ Saved: {summary_table_path}")
 
 # ============================================================
 # 5. FILL TEMPLATE (if template file is available)
@@ -142,9 +156,18 @@ try:
     # Column C: VW Returns
     # Summary statistics section elsewhere
     
-    # Write dates and returns (starting from row 2, assuming headers in row 1)
+    # Write dates and returns (starting from row 2, skipping merged cells)
     for idx, row in results.iterrows():
         excel_row = idx + 2  # +2 because Excel is 1-indexed and row 1 is header
+
+        # Skip down if current row overlaps merged cells in A–C
+        while (
+            isinstance(ws[f'A{excel_row}'], MergedCell)
+            or isinstance(ws[f'B{excel_row}'], MergedCell)
+            or isinstance(ws[f'C{excel_row}'], MergedCell)
+        ):
+            excel_row += 1
+
         ws[f'A{excel_row}'] = row['Date']
         ws[f'B{excel_row}'] = row['MV_Return']
         ws[f'C{excel_row}'] = row['VW_Return']
@@ -177,7 +200,8 @@ except FileNotFoundError:
 
 print("\n[6] Analyzing portfolio compositions...")
 
-comp = pd.read_csv('part1_portfolio_compositions.csv')
+comp_path = os.path.join(RESULTS_DIR, "part1_portfolio_compositions.csv")
+comp = pd.read_csv(comp_path)
 
 # Top holdings by year
 print("\n" + "=" * 60)
@@ -214,12 +238,12 @@ for year in sorted(comp['Year'].unique()):
 print("\n" + "=" * 60)
 print("FILES GENERATED")
 print("=" * 60)
-print("\n✅ cumulative_returns_plot.png")
-print("✅ additional_analysis_plots.png")
-print("✅ summary_table_formatted.csv")
-print("✅ part1_results.csv")
-print("✅ part1_summary_statistics.csv")
-print("✅ part1_portfolio_compositions.csv")
+print(f"\n✅ {cum_plot_path}")
+print(f"✅ {add_plot_path}")
+print(f"✅ {summary_table_path}")
+print(f"✅ {results_path}")
+print(f"✅ {summary_path}")
+print(f"✅ {comp_path}")
 
 print("\n" + "=" * 60)
 print("PART I COMPLETE - READY FOR SUBMISSION")
