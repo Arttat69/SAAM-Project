@@ -91,11 +91,7 @@ DEADLINE REMINDER:
 Good luck! 🚀
 """
 
-# Quick installation check
-print("=" * 60)
-print("SAAM PROJECT - PART I QUICK START")
-print("=" * 60)
-
+import os
 import sys
 
 required_packages = {
@@ -128,9 +124,25 @@ else:
     print("All packages installed! ✓")
     print("=" * 60)
 
-# File check
-import os
+BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(BASE_DIR, "data")
 
+
+def data_path(filename: str) -> str:
+    """
+    Return the expected location of an input data file.
+
+    Prefers the 'data' subfolder; falls back to the repository root.
+    """
+    candidate = os.path.join(DATA_DIR, filename)
+    return candidate if os.path.exists(candidate) else os.path.join(BASE_DIR, filename)
+
+
+# Quick installation check
+print("=" * 60)
+print("SAAM PROJECT - PART I QUICK START")
+print("=" * 60)
+# File check
 required_files = [
     'Static_2025.xlsx',
     'DS_RI_T_USD_Y_2025-3.xlsx',
@@ -144,9 +156,10 @@ print("=" * 60)
 
 missing_files = []
 for file in required_files:
-    if os.path.exists(file):
-        size_mb = os.path.getsize(file) / (1024*1024)
-        print(f"✓ {file} ({size_mb:.1f} MB)")
+    full_path = data_path(file) if file.endswith(".xlsx") else os.path.join(BASE_DIR, file)
+    if os.path.exists(full_path):
+        size_mb = os.path.getsize(full_path) / (1024*1024)
+        print(f"✓ {file} ({size_mb:.1f} MB) at {os.path.relpath(full_path, BASE_DIR)}")
     else:
         print(f"✗ {file} - MISSING")
         missing_files.append(file)

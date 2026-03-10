@@ -47,6 +47,21 @@ STALE_THRESHOLD     = 0.50
 LOW_PRICE_THRESHOLD = 0.5
 RIDGE               = 1e-8
 
+BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
+
+def data_path(filename: str) -> str:
+    """
+    Return the path to an input data file.
+
+    Prefers the 'data' subfolder; falls back to the script directory so that
+    existing setups (files in the repo root) keep working.
+    """
+    candidate = os.path.join(DATA_DIR, filename)
+    return candidate if os.path.exists(candidate) else os.path.join(BASE_DIR, filename)
+
+
 CO2_FILE = "DS_CO2_SCOPE_1_Y_2025.xlsx"
 RF_FILE  = "Risk_Free_Rate_2025.xlsx"
 
@@ -81,19 +96,19 @@ print("Part 1 v4 functions imported successfully.")
 print("=" * 60)
 print("Step 1 — Loading and cleaning monthly RI / MV data…")
 
-static         = pd.read_excel("Static_2025.xlsx", engine="openpyxl")
+static         = pd.read_excel(data_path("Static_2025.xlsx"), engine="openpyxl")
 static.columns = ["ISIN", "NAME", "Country", "Region"]
 static["ISIN"] = static["ISIN"].astype(str).str.strip()
 pac            = static[static["Region"] == REGION_CODE].set_index("ISIN")
 pac_isins      = set(pac.index)
 print(f"  Pacific firms: {len(pac_isins)}")
 
-ri_y         = load_datastream_wide("DS_RI_T_USD_Y_2025.xlsx")
+ri_y         = load_datastream_wide(data_path("DS_RI_T_USD_Y_2025.xlsx"))
 ri_y         = ri_y[ri_y.index.isin(pac_isins)].copy()
 delist_dates = {isin: extract_delist_date(ri_y.at[isin, "NAME"])
                 for isin in ri_y.index}
 
-ri_m_raw                = load_datastream_wide("DS_RI_T_USD_M_2025.xlsx")
+ri_m_raw                = load_datastream_wide(data_path("DS_RI_T_USD_M_2025.xlsx"))
 keep_cols, parsed_dates = parse_monthly_columns(list(ri_m_raw.columns))
 ri_m                    = ri_m_raw[["NAME"] + keep_cols].copy()
 ri_m.columns            = ["NAME"] + parsed_dates
@@ -102,7 +117,7 @@ parsed_dates            = [d for d in parsed_dates
                             if d <= pd.Timestamp("2025-12-31")]
 ri_m = ri_m[["NAME"] + parsed_dates]
 
-mv_m_raw           = load_datastream_wide("DS_MV_T_USD_M_2025.xlsx")
+mv_m_raw           = load_datastream_wide(data_path("DS_MV_T_USD_M_2025.xlsx"))
 keep_cols_mv, _mv  = parse_monthly_columns(list(mv_m_raw.columns))
 mv_m               = mv_m_raw[["NAME"] + keep_cols_mv].copy()
 mv_m.columns       = ["NAME"] + _mv
@@ -141,16 +156,16 @@ def ffill_annual(df: pd.DataFrame) -> pd.DataFrame:
     """Forward-fill across years per firm (leading NaN stays NaN)."""
     return df.T.ffill().T
 
-co2_raw     = load_annual_panel(CO2_FILE)
-rev_raw     = load_annual_panel("DS_REV_Y_2025.xlsx")
-cap_ann_raw = load_annual_panel("DS_MV_T_USD_Y_2025.xlsx")
+co2_raw     = load_annual_panel(data_path(CO2_FILE))
+rev_raw     = load_annual_panel(data_path("DS_REV_Y_2025.xlsx"))
+cap_ann_raw = load_annual_panel(data_path("DS_MV_T_USD_Y_2025.xlsx"))
 
 rev_m   = rev_raw / 1_000.0
 co2_ff  = ffill_annual(co2_raw)
 revM_ff = ffill_annual(rev_m)
 capA_ff = ffill_annual(cap_ann_raw)
 
-_tmp         = pd.read_excel(CO2_FILE, engine="openpyxl")
+_tmp         = pd.read_excel(data_path(CO2_FILE), engine="openpyxl")
 _tmp.columns = ["NAME", "ISIN"] + list(_tmp.columns[2:])
 _tmp         = (_tmp[~_tmp["NAME"].astype(str).str.startswith("$$ER", na=False)]
                 .dropna(subset=["ISIN"]))
@@ -161,7 +176,7 @@ print("  Annual carbon data ready.")
 # Risk-free rate
 print(f"  Loading risk-free rate: {RF_FILE}")
 try:
-    rf_monthly = load_rf_monthly(RF_FILE)
+    rf_monthly = load_rf_monthly(data_path(RF_FILE))
     print(f"  RF: {len(rf_monthly)} obs, mean={rf_monthly.mean()*100:.3f} %/month")
 except Exception as exc:
     print(f"  WARNING: RF not loaded ({exc}). Using rf=0.")

@@ -40,6 +40,20 @@ REGION_CODE         = "PAC"
 LOW_PRICE_THRESHOLD = 0.5
 RESULTS_DIR         = "resultsPart1"
 
+BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
+
+def data_path(filename: str) -> str:
+    """
+    Return the path to an input data file.
+
+    Prefers the 'data' subfolder; falls back to the script directory so that
+    existing setups (files in the repo root) keep working.
+    """
+    candidate = os.path.join(DATA_DIR, filename)
+    return candidate if os.path.exists(candidate) else os.path.join(BASE_DIR, filename)
+
 WINDOW_YEARS    = 10
 MIN_OBS_MONTHS  = 36
 STALE_THRESHOLD = 0.50
@@ -375,7 +389,7 @@ def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     # ── Static ───────────────────────────────────────────────────────────────
-    static         = pd.read_excel("Static_2025.xlsx", engine="openpyxl")
+    static         = pd.read_excel(data_path("Static_2025.xlsx"), engine="openpyxl")
     static.columns = ["ISIN", "NAME", "Country", "Region"]
     static["ISIN"] = static["ISIN"].astype(str).str.strip()
     pac            = static[static["Region"] == REGION_CODE].copy().set_index("ISIN")
@@ -383,14 +397,14 @@ def main():
     print(f"Pacific firms in Static: {len(pac_isins)}")
 
     # ── Annual RI (delist dates) ──────────────────────────────────────────────
-    ri_y         = load_datastream_wide("DS_RI_T_USD_Y_2025.xlsx")
+    ri_y         = load_datastream_wide(data_path("DS_RI_T_USD_Y_2025.xlsx"))
     ri_y         = ri_y[ri_y.index.isin(pac_isins)].copy()
     delist_dates = {isin: extract_delist_date(ri_y.at[isin, "NAME"])
                     for isin in ri_y.index}
     print(f"Delisted Pacific firms: {sum(v is not None for v in delist_dates.values())}")
 
     # ── Monthly RI ────────────────────────────────────────────────────────────
-    ri_m_raw                = load_datastream_wide("DS_RI_T_USD_M_2025.xlsx")
+    ri_m_raw                = load_datastream_wide(data_path("DS_RI_T_USD_M_2025.xlsx"))
     keep_cols, parsed_dates = parse_monthly_columns(list(ri_m_raw.columns))
     ri_m                    = ri_m_raw[["NAME"] + keep_cols].copy()
     ri_m.columns            = ["NAME"] + parsed_dates
@@ -401,7 +415,7 @@ def main():
     print(f"Monthly RI: {ri_m.shape[0]} firms, {len(parsed_dates)} months")
 
     # ── Monthly MV ────────────────────────────────────────────────────────────
-    mv_m_raw           = load_datastream_wide("DS_MV_T_USD_M_2025.xlsx")
+    mv_m_raw           = load_datastream_wide(data_path("DS_MV_T_USD_M_2025.xlsx"))
     keep_cols_mv, _mv  = parse_monthly_columns(list(mv_m_raw.columns))
     mv_m               = mv_m_raw[["NAME"] + keep_cols_mv].copy()
     mv_m.columns       = ["NAME"] + _mv
@@ -443,7 +457,7 @@ def main():
     # missing values between two available years or at the end of the sample).
     # This makes Part I use the same forward-filled panel as Part II.
     print(f"Loading CO2 panel: {CO2_FILE}")
-    co2_panel = load_annual_panel(CO2_FILE)
+    co2_panel = load_annual_panel(data_path(CO2_FILE))
     co2_panel = co2_panel.T.ffill().T          # ← Bug 1 fix
     print(f"  {co2_panel.shape[0]} ISINs, "
           f"years {co2_panel.columns.min()}–{co2_panel.columns.max()}")
@@ -451,7 +465,7 @@ def main():
     # ── Load risk-free rate ───────────────────────────────────────────────────
     print(f"Loading risk-free rate: {RF_FILE}")
     try:
-        rf_monthly = load_rf_monthly(RF_FILE)
+        rf_monthly = load_rf_monthly(data_path(RF_FILE))
         print(f"  {len(rf_monthly)} obs, "
               f"mean={rf_monthly.mean()*100:.3f} %/month")
     except Exception as exc:

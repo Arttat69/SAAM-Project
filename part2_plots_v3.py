@@ -15,8 +15,13 @@ import matplotlib.dates as mdates
 # ─── Match this flag to part2_main_v3.py ─────────────────────────────────────
 USE_LEDOIT_WOLF = True    # ← flip to False if you ran without LW shrinkage
 
-RESULTS_PART1 = "resultsPart1"
-RESULTS_PART2 = "ResultsPart2_LW" if USE_LEDOIT_WOLF else "ResultsPart2"
+BASE_DIR = os.path.dirname(__file__)
+
+RESULTS_PART1 = os.path.join(BASE_DIR, "resultsPart1")
+RESULTS_PART2 = os.path.join(
+    BASE_DIR,
+    "ResultsPart2_LW" if USE_LEDOIT_WOLF else "ResultsPart2",
+)
 os.makedirs(RESULTS_PART2, exist_ok=True)
 
 Y0    = 2013
@@ -54,7 +59,7 @@ def fmt_xaxis(ax, rot=45):
     plt.setp(ax.get_xticklabels(), rotation=rot, ha="right")
 
 def save(fig, name):
-    path = f"{RESULTS_PART2}/{name}"
+    path = os.path.join(RESULTS_PART2, name)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved {path}")

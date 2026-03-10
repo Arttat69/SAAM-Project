@@ -21,9 +21,22 @@ print("PART I: VISUALIZATION & TEMPLATE FILLER")
 print("=" * 60)
 
 # directories
+BASE_DIR   = os.path.dirname(__file__)
+DATA_DIR   = os.path.join(BASE_DIR, "data")
 RESULTS_DIR = "resultsPart1"
-OUTPUT_DIR = "part1_outputs"
+OUTPUT_DIR  = "part1_outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def data_path(filename: str) -> str:
+    """
+    Return the path to an input Excel template.
+
+    Prefers the 'data' subfolder; falls back to the script directory so that
+    existing setups (template in the repo root) keep working.
+    """
+    candidate = os.path.join(DATA_DIR, filename)
+    return candidate if os.path.exists(candidate) else os.path.join(BASE_DIR, filename)
 
 # ============================================================
 # 1. LOAD RESULTS
@@ -153,7 +166,7 @@ print("\n[5] Checking for template file...")
 
 try:
     # Try to load template
-    template_path = 'Template for Part I-SAAM.xlsx'
+    template_path = data_path('Template for Part I-SAAM.xlsx')
     wb = load_workbook(template_path)
     ws = wb.active
     

@@ -18,6 +18,22 @@ print("=" * 60)
 print("TEMPLATE FILLER FOR PART I")
 print("=" * 60)
 
+# Resolve paths relative to this script (works regardless of current working dir)
+BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(BASE_DIR, "data")
+
+
+def data_path(filename: str) -> str:
+    """
+    Return the path to an input Excel file.
+
+    Prefers the 'data' subfolder; falls back to the script directory so that
+    existing setups (template in the repo root) keep working.
+    """
+    candidate = os.path.join(DATA_DIR, filename)
+    return candidate if os.path.exists(candidate) else os.path.join(BASE_DIR, filename)
+
+
 # Directory where Part I results CSVs are stored
 RESULTS_DIR = "resultsPart1"
 
@@ -59,7 +75,7 @@ vw = summary.loc['Value Weighted']
 print("\n[2] Loading template...")
 
 try:
-    wb = openpyxl.load_workbook('Template for Part I-SAAM.xlsx')
+    wb = openpyxl.load_workbook(data_path("Template for Part I-SAAM.xlsx"))
     print(f"   ✓ Template loaded")
     print(f"   Sheets found: {wb.sheetnames}")
 except FileNotFoundError:
