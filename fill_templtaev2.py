@@ -87,12 +87,24 @@ print(f"   Working with sheet: '{ws.title}'")
 print("\n[3] Filling summary statistics (B3:C8)...")
 
 stats_map = {
-    3: ('Annualized Return',    vw['Annualized Return'],    mv['Annualized Return']),
-    4: ('Annualized Volatility', vw['Annualized Volatility'], mv['Annualized Volatility']),
-    5: ('Cumulative Return',    vw['Cumulative Return'],    mv['Cumulative Return']),
-    6: ('Sharpe Ratio',         vw['Sharpe Ratio'],         mv['Sharpe Ratio']),
-    7: ('Min Monthly Return',   vw['Min Monthly Return'],   mv['Min Monthly Return']),
-    8: ('Max Monthly Return',   vw['Max Monthly Return'],   mv['Max Monthly Return']),
+    3: ('Annualized Return (geom.)',
+        vw['Annualized Return (geometric avg)'],
+        mv['Annualized Return (geometric avg)']),
+    4: ('Annualized Volatility',
+        vw['Annualized Volatility'],
+        mv['Annualized Volatility']),
+    5: ('Cumulative Return',
+        vw['Cumulative Return'],
+        mv['Cumulative Return']),
+    6: ('Sharpe Ratio',
+        vw['Sharpe Ratio'],
+        mv['Sharpe Ratio']),
+    7: ('Min Monthly Return',
+        vw['Min Monthly Return'],
+        mv['Min Monthly Return']),
+    8: ('Max Monthly Return',
+        vw['Max Monthly Return'],
+        mv['Max Monthly Return']),
 }
 
 for row_idx, (label, vw_val, mv_val) in stats_map.items():
@@ -150,7 +162,7 @@ print(f"\n📊 Data filled:")
 print(f"   • Stats (B3:C8):       6 rows × 2 portfolios")
 print(f"   • Monthly (F3:G{last_row}): {len(results)} months × 2 portfolios")
 print(f"\n📈 Key results:")
-print(f"   MV  Ann. Return  = {mv['Annualized Return']:.4f}  | VW = {vw['Annualized Return']:.4f}")
+print(f"   MV  Ann. Return  = {mv['Annualized Return (geometric avg)']:.4f}  | VW = {vw['Annualized Return (geometric avg)']:.4f}")
 print(f"   MV  Ann. Vol     = {mv['Annualized Volatility']:.4f}  | VW = {vw['Annualized Volatility']:.4f}")
 print(f"   MV  Sharpe       = {mv['Sharpe Ratio']:.4f}  | VW = {vw['Sharpe Ratio']:.4f}")
 print(f"   MV  Cum. Return  = {mv['Cumulative Return']:.4f} (+{mv['Cumulative Return']*100:.1f}%) | "

@@ -119,12 +119,22 @@ print("\n[4] Creating summary table...")
 
 # Format summary statistics for report
 summary_formatted = summary.copy()
-summary_formatted['Annualized Return'] = summary_formatted['Annualized Return'].apply(lambda x: f"{x*100:.2f}%")
-summary_formatted['Annualized Volatility'] = summary_formatted['Annualized Volatility'].apply(lambda x: f"{x*100:.2f}%")
+summary_formatted['Annualized Return (geometric avg)'] = summary_formatted['Annualized Return (geometric avg)'].apply(
+    lambda x: f"{x*100:.2f}%"
+)
+summary_formatted['Annualized Volatility'] = summary_formatted['Annualized Volatility'].apply(
+    lambda x: f"{x*100:.2f}%"
+)
 summary_formatted['Sharpe Ratio'] = summary_formatted['Sharpe Ratio'].apply(lambda x: f"{x:.4f}")
-summary_formatted['Min Monthly Return'] = summary_formatted['Min Monthly Return'].apply(lambda x: f"{x*100:.2f}%")
-summary_formatted['Max Monthly Return'] = summary_formatted['Max Monthly Return'].apply(lambda x: f"{x*100:.2f}%")
-summary_formatted['Cumulative Return'] = summary_formatted['Cumulative Return'].apply(lambda x: f"{x*100:.2f}%")
+summary_formatted['Min Monthly Return'] = summary_formatted['Min Monthly Return'].apply(
+    lambda x: f"{x*100:.2f}%"
+)
+summary_formatted['Max Monthly Return'] = summary_formatted['Max Monthly Return'].apply(
+    lambda x: f"{x*100:.2f}%"
+)
+summary_formatted['Cumulative Return'] = summary_formatted['Cumulative Return'].apply(
+    lambda x: f"{x*100:.2f}%"
+)
 
 print("\n" + "=" * 60)
 print("SUMMARY STATISTICS")
@@ -176,8 +186,14 @@ try:
     # MV Portfolio summary at F2:F7
     # VW Portfolio summary at G2:G7
     
-    summary_metrics = ['Annualized Return', 'Annualized Volatility', 'Sharpe Ratio', 
-                      'Min Monthly Return', 'Max Monthly Return', 'Cumulative Return']
+    summary_metrics = [
+        'Annualized Return (geometric avg)',
+        'Annualized Volatility',
+        'Sharpe Ratio',
+        'Min Monthly Return',
+        'Max Monthly Return',
+        'Cumulative Return',
+    ]
     
     for i, metric in enumerate(summary_metrics):
         ws[f'E{i+2}'] = metric

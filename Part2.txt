@@ -1,0 +1,56 @@
+This is significantly better. No files needed — the output is self-diagnosing. Here is a thorough analysis.
+
+The Core Fix Worked ✅
+The three most important diagnostic checks all pass:
+
+Check	Without LW	With LW
+3.3 CF constraint binding	✗ achieved ≈ 34 vs target ≈ 114	✅ achieved = target every year
+4.1 CF constraint binding	✗ achieved ≈ 34 vs target ≈ 205	✅ achieved = target every year
+3.3 ≠ 4.1 results	✗ identical to 4 decimal places	✅ distinct (cumret 1.168 vs 1.161)
+The shrinkage intensities δ̂ ∈ [0.36, 0.48] are meaningful — not near 0 (which would mean LW had no effect) nor near 1 (which would mean the sample covariance was discarded entirely). The average correlation r̄ ≈ 0.25–0.29 is economically sensible for Pacific equities .
+
+Section-by-Section Commentary
+Section 3.2 — MV with 50% CF
+Two small points worth noting:
+
+2013 and 2014: constraint not binding (achieved 670 vs target 715, and 680 vs 687). This is actually correct — the LW min-variance portfolio in those early years naturally has a CF already below 50% of CF_MV, so no constraint is needed. From 2015 onward the constraint is binding.
+
+Constrained portfolio has lower volatility (10.8%) than unconstrained MV (11.9%). This is the LW regularisation effect: by shrinking extreme eigenvalues, the estimated Σ is better conditioned, and the constrained optimum is more diversified and more stable out-of-sample. Sharpe ratio goes up from 0.64 → 0.73. Worth highlighting in the report.
+
+Section 3.3 — TE minimisation with 50% CF
+Constraint is binding every year ✅
+
+Non-zero weights: 245–446 out of eligible → very diversified, close to VW, as expected from a TE objective
+
+Small performance cost: cumret 1.168 vs VW 1.180. Sharpe drops from 0.588 → 0.575. This is the economically sensible result: decarbonisation costs a little but not much for a passive investor.
+
+Section 4.1 — Net Zero
+Constraint binding every year ✅
+
+The cumulative tightening is working: constraint goes from 205 (2013) → 64 (2024), and the optimizer meets it every year
+
+Performance cost is slightly larger than 3.3: cumret 1.161 vs 1.168. The ordering VW > TE(0.5) > NZ is economically correct — more constrained = slightly more costly.
+
+LW Parameters
+The δ̂ pattern is telling:
+
+2013–2019: δ̂ ≈ 0.36–0.44 — as N grows faster than T improves
+
+2020–2024: δ̂ ≈ 0.39–0.48 — peaks around 2023 (N=471 firms, maximum distance from T=120) — more shrinkage needed as the investment set gets larger
+
+This is exactly what Lecture 4 predicts: δ̂ increases in N and decreases in T. Good material for the limitations section of your report.
+​
+
+One Remaining Anomaly to Watch
+In Section 3.2, years 2013–2014 show achieved < target. In your report, be explicit: "the constraint is inactive for the first two years because the LW-regularised minimum-variance portfolio already achieves a CF below the 50% threshold, suggesting the carbon objective imposes no binding trade-off in the early sample when fewer high-carbon firms are eligible." That is a genuine result, not a bug.
+
+Bottom Line
+The output is econometrically valid and ready for analysis. You do not need to send additional files. The key things to write up in your report are:
+
+Why LW was needed (N > T rank deficiency, Lecture 4 motivation)
+
+What target was used (constant-correlation model, LW 2004 JPM)
+
+The δ̂ values and their pattern
+
+The cost of decarbonisation: small Sharpe/return drag, quantified above
