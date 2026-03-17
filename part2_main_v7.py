@@ -66,7 +66,7 @@ os.makedirs(RESULTS_PART2, exist_ok=True)
 # ─────────────────────────────────────────────────────────────────────────────
 # IMPORT HELPERS FROM PART 1 v4
 # ─────────────────────────────────────────────────────────────────────────────
-_spec = importlib.util.spec_from_file_location("part1", "saam_part1_complete_v4.py")
+_spec = importlib.util.spec_from_file_location("part1", "saam_part1_complete_v6.py")
 _p1   = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_p1)
 

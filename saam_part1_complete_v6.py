@@ -1,5 +1,5 @@
 # ============================================================
-# SAAM PROJECT 2026 — PART I  (v4 — three-bug fix release)
+# SAAM PROJECT 2026 — PART I  (v6 — three-bug fix release)
 # Group: Pacific Area | Scope 1
 #
 # Fixes vs v3 + v5 + v6 fixes
@@ -61,7 +61,7 @@ import numpy as np
 import re
 from datetime import datetime
 from scipy.optimize import minimize
-from sklearn.covariance import LedoitWolf
+from pandas.tseries.offsets import MonthEnd
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -128,36 +128,46 @@ def load_annual_panel(filepath: str) -> pd.DataFrame:
 
 def load_rf_monthly(filepath):
     """
-    Load Risk_Free_Rate_2025.xlsx.
+    Load Risk_Free_Rate_2025.xlsx and force the index to calendar month-end.
 
-    Format
-    ------
-    Index column : YYYYMM integer  (e.g. 202401 = January 2024)
-    'RF' column  : monthly rate in PERCENT  (e.g. 0.41 = 0.41 %/month)
+    Input format:
+    - index: YYYYMM
+    - value: RF in percent per month
 
-    Returns a pd.Series of monthly DECIMAL rates indexed by month-end
-    Timestamps (same end-of-month convention as Datastream columns).
-    Division by 100 converts percent → decimal.
+    Output:
+    - pd.Series of decimal monthly RF indexed by calendar month-end
     """
-    df    = pd.read_excel(filepath, engine="openpyxl", index_col=0)
+    df = pd.read_excel(filepath, engine="openpyxl", index_col=0)
     df.index = df.index.astype(str).str.strip()
-    dates = pd.to_datetime(df.index, format="%Y%m") + pd.offsets.MonthEnd(0)
-    rf    = pd.to_numeric(df.iloc[:, 0], errors="coerce") / 100.0
-    rf.index = dates
-    return rf.dropna().sort_index()
 
+    dates = (pd.to_datetime(df.index, format="%Y%m") + MonthEnd(0)).normalize()
+    rf = pd.to_numeric(df.iloc[:, 0], errors="coerce") / 100.0
+
+    rf.index = dates
+    rf = rf.dropna().sort_index()
+
+    return rf
+
+    
+    
 
 def parse_monthly_columns(cols):
+    """
+    Parse Datastream monthly columns and force them to calendar month-end.
+
+    Example:
+    2017-04-28  -> 2017-04-30
+    2024-02-29  -> 2024-02-29
+    """
     parsed, keep = [], []
     for c in cols:
         if c == "NAME":
             continue
-        dt = pd.to_datetime(str(c), errors="coerce", dayfirst=True)
+        dt = pd.to_datetime(str(c), errors="coerce")
         if pd.notna(dt):
             keep.append(c)
-            parsed.append(pd.Timestamp(dt).normalize())
+            parsed.append((pd.Timestamp(dt) + MonthEnd(0)).normalize())
     return keep, parsed
-
 
 def extract_delist_date(name_str):
     m = re.search(r"(?:DELIST|DEAD)\.(\d{2}/\d{2}/\d{2,4})", str(name_str))
@@ -205,21 +215,60 @@ def clean_monthly_ri_prices(raw_ri_m, dates, low_price_threshold=0.5,
     return prices_filled
 
 
-def apply_delisting_to_returns(returns_df, delist_dates, dates):
-    out        = returns_df.copy()
+def apply_delisting_to_returns(returns_df, price_df, delist_dates, dates):
+    """
+    Apply delisting returns using the MONTHLY RI panel as the primary source.
+
+    Logic:
+    - Only act on securities flagged as dead/delisted in the annual names.
+    - If the cleaned monthly RI price series continues to the end of the sample,
+      do nothing: observed monthly data takes precedence over stale annual labels.
+    - If the price series stops before the end of the sample, assign -100% to the
+      first missing month after the last valid observed price.
+    - Set all later returns to NaN.
+
+    Why this is better:
+    - avoids overwriting valid observed returns (e.g. CIMIC)
+    - avoids assigning the delisting loss too late when the monthly RI series
+      disappears before the reported delist month-end
+    """
+    out = returns_df.copy()
     date_index = pd.Index(dates)
+
     for isin, ddate in delist_dates.items():
-        if ddate is None or isin not in out.index:
+        if ddate is None:
             continue
-        dts        = pd.Timestamp(ddate).normalize()
-        candidates = date_index[date_index >= dts]
-        if len(candidates) == 0:
+        if isin not in out.index or isin not in price_df.index:
             continue
-        dcol = candidates.min()
+
+        px = price_df.loc[isin]
+
+        valid_dates = px.dropna().index
+        if len(valid_dates) == 0:
+            continue
+
+        last_valid = valid_dates.max()
+
+        # If the monthly RI price series continues through the sample end,
+        # trust the observed panel and do NOT force a delisting return.
+        if last_valid == date_index.max():
+            continue
+
+        # First month after the last valid observed price = first unresolved missing return month
+        trailing_candidates = date_index[date_index > last_valid]
+        if len(trailing_candidates) == 0:
+            continue
+
+        dcol = trailing_candidates.min()
+
+        # Apply delisting loss at first missing return month
         out.at[isin, dcol] = -1.0
+
+        # All later months are out of the sample for that security
         after = date_index[date_index > dcol]
         if len(after) > 0:
             out.loc[isin, after] = np.nan
+
     return out
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -284,43 +333,72 @@ def build_investment_set(ri_prices, ri_returns, dates, year_end,
     eligible = ri_prices.index[ok_price & ok_obs & ok_stale & ok_carbon]
     return list(eligible), cols
 
+def make_psd(Sigma, min_eig=1e-10):
+    """
+    Repair a symmetric matrix to positive semi-definite (PSD)
+    by clipping negative eigenvalues.
+
+    This is a transparent numerical fix:
+    - preserve the covariance structure as much as possible
+    - only remove the negative-eigenvalue problem that breaks optimization
+    """
+    Sigma = np.asarray(Sigma, dtype=float)
+
+    # Force exact symmetry
+    Sigma = 0.5 * (Sigma + Sigma.T)
+
+    eigvals, eigvecs = np.linalg.eigh(Sigma)
+    eigvals_clipped = np.clip(eigvals, min_eig, None)
+
+    Sigma_psd = eigvecs @ np.diag(eigvals_clipped) @ eigvecs.T
+    Sigma_psd = 0.5 * (Sigma_psd + Sigma_psd.T)
+
+    return Sigma_psd
+
 
 def estimate_moments(ri_returns, isins, cols):
     """
     Compute mu (N,) and Sigma (N,N) on the 10-year window.
 
-    Covariance estimator: Ledoit-Wolf shrinkage  ← Bug 4 fix (v6)
-    ────────────────────────────────────────────────────────────────
-    The previous pairwise-deletion + zero-fill + tiny-ridge approach
-    produced a non-PSD matrix (up to 6 negative eigenvalues for the
-    2013 window), causing SLSQP to stall or diverge.
+    Method used:
+    1. mu:
+       arithmetic mean of each firm's observed monthly returns
+       (NaN-aware, skipna=True)
 
-    Fix:
-      1. mu  — arithmetic mean of each firm's OBSERVED monthly returns
-               (NaN-aware, skipna=True).  Unchanged from v4.
-      2. Sigma— Ledoit-Wolf shrinkage estimator (sklearn).
-               LW guarantees a PSD matrix by construction and provides
-               data-driven regularisation (δ̂ ≈ 0.36–0.48 empirically).
-               NaN entries are filled with each firm's own mean before
-               passing to LW, so missing periods contribute zero
-               deviation from the mean (no information injected).
-               This avoids the zero-imputation bias of the old approach
-               and eliminates the need for any additional RIDGE term.
+    2. Sigma:
+       pairwise-deletion sample covariance using observed overlapping returns,
+       with ddof=0 to match the project formula as closely as possible.
 
-    Brief compliance: the brief specifies Σ_Y = (1/τ)Σ(R−μ̂)(R−μ̂)'.
-    LW targets this same sample covariance and shrinks it toward a
-    scaled identity, which is a standard and well-accepted regularisation
-    of that formula when N is close to T.
+       Because pairwise covariance matrices may not be PSD, we then apply a
+       transparent numerical PSD repair via eigenvalue clipping.
+
+    Missing-data treatment:
+    - no mean-imputation of missing returns
+    - no filling missing returns with zeros
+    - covariance uses only available overlapping observations
+    - any remaining NaN covariances are set to 0.0 only at the covariance
+      matrix level before PSD repair
     """
-    R   = ri_returns.loc[isins, cols].astype(float)
-    mu  = R.mean(axis=1, skipna=True).to_numpy()
+    R = ri_returns.loc[isins, cols].astype(float)
 
-    # Fill NaN with each firm's own time-series mean → zero deviation imputed
-    R_filled = R.T.fillna(R.mean(axis=1)).T  # shape (N, T)
+    # Mean vector from observed returns only
+    mu = R.mean(axis=1, skipna=True).to_numpy()
 
-    lw    = LedoitWolf()
-    lw.fit(R_filled.values.T)          # LW expects (T, N)
-    Sigma = lw.covariance_             # (N, N), guaranteed PSD
+    # Pairwise covariance from observed overlaps only
+    Sigma_df = R.T.cov(ddof=0)
+
+    # Ensure diagonal exists using each asset's own observed variance
+    diag_var = R.var(axis=1, ddof=0)
+    for i, isin in enumerate(Sigma_df.index):
+        if pd.isna(Sigma_df.iat[i, i]):
+            Sigma_df.iat[i, i] = diag_var.loc[isin]
+
+    # Any remaining NaN entries are unresolved pairwise covariances
+    # Set them to zero before PSD repair
+    Sigma_df = Sigma_df.fillna(0.0)
+
+    # Convert to PSD for optimization stability
+    Sigma = make_psd(Sigma_df.to_numpy(), min_eig=1e-10)
 
     return mu, Sigma
 
@@ -343,75 +421,152 @@ def solve_min_variance(Sigma):
 
 
 def compute_mv_oos_returns(portfolios, ri_returns, dates):
+    """
+    Compute out-of-sample monthly returns for the minimum-variance portfolio.
+
+    Improvements vs old version:
+    1. Checks that each investment year has exactly 12 months.
+    2. Does NOT silently fill all missing returns with 0.
+       - If a missing return belongs to an asset with ~zero weight, it is harmless.
+       - If a missing return belongs to an asset with material positive weight,
+         raise an error.
+    3. Checks that portfolio weights remain properly normalized through time.
+    """
     out_r, out_d = [], []
+
     for year_end, info in portfolios.items():
         invest_year = year_end + 1
+
         year_months = [d for d in dates
                        if pd.Timestamp(f"{invest_year}-01-01") <= d
                        <= pd.Timestamp(f"{invest_year}-12-31")]
-        if not year_months:
-            continue
+
+        # Issue 5 fix: require exactly 12 months per investment year
+        if len(year_months) != 12:
+            raise ValueError(
+                f"MV OOS error: year {invest_year} has {len(year_months)} months, expected 12."
+            )
+
         isins = info["isins"]
-        w     = info["weights"].copy()
+        w = info["weights"].astype(float).copy()
+
+        # Safety: weights should start normalized
+        if not np.isclose(w.sum(), 1.0, atol=1e-8):
+            raise ValueError(
+                f"MV OOS error: initial weights for year {invest_year} sum to {w.sum():.12f}, not 1."
+            )
+
         for d in year_months:
-            r_i = ri_returns.loc[isins, d].fillna(0.0).to_numpy()
+            r_s = ri_returns.loc[isins, d].astype(float)
+
+            # Issue 3 fix: no blanket fillna(0.0)
+            missing_mask = r_s.isna().to_numpy()
+            if missing_mask.any():
+                missing_weight = w[missing_mask].sum()
+
+                # Missing returns are only acceptable if attached to zero/near-zero weights
+                if missing_weight > 1e-10:
+                    missing_isins = list(np.array(isins)[missing_mask])
+                    raise ValueError(
+                        f"MV OOS error on {d.date()}: missing returns for assets with "
+                        f"positive portfolio weight. Missing weight = {missing_weight:.12f}. "
+                        f"ISINs: {missing_isins[:10]}"
+                    )
+
+            # Only zero-weight missing assets get replaced by 0
+            r_i = r_s.fillna(0.0).to_numpy()
+
+            # Portfolio return
             r_p = float(w @ r_i)
-            out_r.append(r_p); out_d.append(d)
+            out_r.append(r_p)
+            out_d.append(d)
+
+            # Weight drift
             denom = 1.0 + r_p
-            if denom != 0:
-                w = w * (1.0 + r_i) / denom
+            if np.isclose(denom, 0.0, atol=1e-12):
+                raise ValueError(
+                    f"MV OOS error on {d.date()}: portfolio wealth hit zero (1 + r_p = 0)."
+                )
+
+            w = w * (1.0 + r_i) / denom
+
+            # Safety: keep weights normalized after drift
+            if not np.isclose(w.sum(), 1.0, atol=1e-8):
+                raise ValueError(
+                    f"MV OOS error on {d.date()}: drifted weights sum to {w.sum():.12f}, not 1."
+                )
+
     return pd.Series(out_r, index=pd.to_datetime(out_d)).sort_index()
 
 
 def compute_vw_oos_returns(portfolios, ri_returns, mv_caps, dates,
-                            start_year=2014, end_year=2025):
+                           start_year=2014, end_year=2025):
     """
     Value-weighted benchmark restricted to the annual eligible investment set.
 
-    For calendar year Y+1, we use portfolios[Y]["isins"] — the same universe
-    used to build the MV portfolio — ensuring a like-for-like comparison.
-
-      - In calendar year 2014, use firms eligible at end-2013
-      - In calendar year 2015, use firms eligible at end-2014  (etc.)
-
-    This fixes the v4 implementation which used any firm with available
-    lagged monthly cap + current return (a looser, inconsistent universe that
-    did not respect the stale-price, carbon-availability, or min-obs filters).
-    See brief §2.3 and §3.3: the VW benchmark denominator is explicitly
-    described as "the total market value of the investment set".
+    Improvements vs old version:
+    1. Checks that each investment year has exactly 12 months.
+    2. Explicitly checks that monthly VW weights sum to 1 after filtering.
+    3. Raises an error if valid common stocks exist but total lagged cap is non-positive.
     """
     out_r, out_d = [], []
     dates_sorted = sorted(dates)
-    pos          = {d: i for i, d in enumerate(dates_sorted)}
+    pos = {d: i for i, d in enumerate(dates_sorted)}
 
     for year_end, info in portfolios.items():
-        invest_year    = year_end + 1
+        invest_year = year_end + 1
         if invest_year < start_year or invest_year > end_year:
             continue
+
         eligible_isins = info["isins"]
 
         year_months = [d for d in dates_sorted
                        if pd.Timestamp(f"{invest_year}-01-01") <= d
                        <= pd.Timestamp(f"{invest_year}-12-31")]
 
+        # Issue 5 fix: require exactly 12 months per investment year
+        if len(year_months) != 12:
+            raise ValueError(
+                f"VW OOS error: year {invest_year} has {len(year_months)} months, expected 12."
+            )
+
         for d in year_months:
             i = pos.get(d)
             if i is None or i == 0:
-                continue
+                raise ValueError(f"VW OOS error: missing previous month for date {d}.")
+
             d_prev = dates_sorted[i - 1]
-            if d_prev not in mv_caps.columns or d not in ri_returns.columns:
-                continue
 
-            # Restrict to the eligible investment set for this year
-            elig_in_caps = [s for s in eligible_isins if s in mv_caps.index]
-            elig_in_rets = [s for s in eligible_isins if s in ri_returns.index]
-            caps   = mv_caps.loc[elig_in_caps, d_prev].dropna()
-            rets   = ri_returns.loc[elig_in_rets, d].dropna()
+            if d_prev not in mv_caps.columns:
+                raise ValueError(f"VW OOS error: lagged market cap date {d_prev} not found.")
+            if d not in ri_returns.columns:
+                raise ValueError(f"VW OOS error: return date {d} not found.")
+
+            # Restrict to annual eligible investment set
+            caps = mv_caps.loc[eligible_isins, d_prev].dropna()
+            rets = ri_returns.loc[eligible_isins, d].dropna()
+
             common = caps.index.intersection(rets.index)
-            if len(common) == 0:
-                continue
 
-            w = caps.loc[common] / caps.loc[common].sum()
+            if len(common) == 0:
+                raise ValueError(
+                    f"VW OOS error on {d.date()}: no common eligible stocks with both cap and return."
+                )
+
+            cap_sum = caps.loc[common].sum()
+            if cap_sum <= 0:
+                raise ValueError(
+                    f"VW OOS error on {d.date()}: total lagged market cap is non-positive."
+                )
+
+            w = caps.loc[common] / cap_sum
+
+            # Issue 4 fix: explicit check that weights sum to 1
+            if not np.isclose(w.sum(), 1.0, atol=1e-8):
+                raise ValueError(
+                    f"VW OOS error on {d.date()}: weights sum to {w.sum():.12f}, not 1."
+                )
+
             out_r.append(float(w.to_numpy() @ rets.loc[common].to_numpy()))
             out_d.append(d)
 
@@ -422,28 +577,46 @@ def perf_stats(r, rf=None):
     """
     Annualised performance statistics.
 
-    rf : pd.Series of monthly decimal rates (from Risk_Free_Rate_2025.xlsx).
-         Aligned to r.index.  If None, rf=0 (v2 fallback).
+    Definitions used:
+    - Annualized Average Return      = 12 * mean(monthly return)
+    - Annualized Cumulative Return   = [(1+r_1)...(1+r_T)]^(12/T) - 1
+    - Annualized Volatility          = std(monthly return) * sqrt(12)
+    - Sharpe Ratio                   = mean(monthly excess return) / std(monthly excess return) * sqrt(12)
 
-    Annualised return  = (1 + mu_m)^12 − 1  [compounds arithmetic mean, per template]
-    Geometric return   = [(1+r_1)…(1+r_T)]^(12/T) − 1  [also reported for transparency]
-    Sharpe             = mean(r − rf) / std(r − rf) × √12
+    rf : pd.Series of monthly decimal risk-free rates, aligned to r.index.
+         If None, rf = 0.
     """
     r = r.dropna()
     T = len(r)
-    rf_aligned = rf.reindex(r.index).fillna(0.0) if rf is not None \
-                 else pd.Series(0.0, index=r.index)
-    excess  = r - rf_aligned
-    mu_m    = r.mean()
+
+    if T == 0:
+        return {
+            "Annualized Average Return": np.nan,
+            "Annualized Cumulative Return": np.nan,
+            "Annualized Volatility": np.nan,
+            "Sharpe Ratio": np.nan,
+            "Min Monthly Return": np.nan,
+            "Max Monthly Return": np.nan,
+        }
+
+    rf_aligned = (
+        rf.reindex(r.index).fillna(0.0)
+        if rf is not None
+        else pd.Series(0.0, index=r.index)
+    )
+
+    excess = r - rf_aligned
+    mu_m = r.mean()
+    sigma_r = r.std(ddof=1)
     sigma_e = excess.std(ddof=1)
+
     return {
-        "Annualized Return (arith. compounding)": (1 + mu_m) ** 12 - 1,
-        "Annualized Return (geometric avg)"      : (1 + r).prod() ** (12.0 / T) - 1 if T > 0 else np.nan,
-        "Annualized Volatility"                  : r.std(ddof=1) * np.sqrt(12),
-        "Sharpe Ratio"                           : (excess.mean() / sigma_e) * np.sqrt(12) if sigma_e > 0 else np.nan,
-        "Min Monthly Return"                     : r.min(),
-        "Max Monthly Return"                     : r.max(),
-        "Cumulative Return"                      : (1 + r).prod() - 1,
+        "Annualized Average Return": 12.0 * mu_m,
+        "Annualized Cumulative Return": (1.0 + r).prod() ** (12.0 / T) - 1.0,
+        "Annualized Volatility": sigma_r * np.sqrt(12.0),
+        "Sharpe Ratio": (excess.mean() / sigma_e) * np.sqrt(12.0) if sigma_e > 0 else np.nan,
+        "Min Monthly Return": r.min(),
+        "Max Monthly Return": r.max(),
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -513,10 +686,9 @@ def main():
         print(f"Dropped fully-missing RI rows: {all_missing.sum()}")
 
     ri_returns = ri_prices.pct_change(axis=1, fill_method=None)  # explicit: no implicit forward-fill
-    ri_returns = apply_delisting_to_returns(
-        ri_returns,
-        {k: v for k, v in delist_dates.items() if k in ri_returns.index},
-        parsed_dates
+    ri_returns = apply_delisting_to_returns(ri_returns, ri_prices,
+    {k: v for k, v in delist_dates.items() if k in ri_returns.index},
+    parsed_dates
     )
 
     # ── Load CO2 panel — forward-fill BEFORE passing to investment set ────────
@@ -537,9 +709,13 @@ def main():
         rf_monthly = load_rf_monthly(data_path(RF_FILE))
         print(f"  {len(rf_monthly)} obs, "
               f"mean={rf_monthly.mean()*100:.3f} %/month")
+        print("RF sample dates:", rf_monthly.index.min(), "to", rf_monthly.index.max())
+        print("Example RI dates:", parsed_dates[:3], "...", parsed_dates[-3:])
     except Exception as exc:
         print(f"  WARNING: could not load RF ({exc}). Using rf=0.")
         rf_monthly = None
+
+   
 
     # ── Build annual MV portfolios ────────────────────────────────────────────
     portfolios = {}
