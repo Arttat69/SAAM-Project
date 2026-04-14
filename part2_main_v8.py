@@ -65,9 +65,26 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 
 
 def data_path(filename: str) -> str:
-    """Resolve data file: prefer ./data/ subfolder, fall back to script dir."""
-    candidate = os.path.join(DATA_DIR, filename)
-    return candidate if os.path.exists(candidate) else os.path.join(BASE_DIR, filename)
+    """Resolve data file robustly across script/notebook working directories."""
+    from pathlib import Path
+
+    candidates = []
+    for anchor in [Path(DATA_DIR), Path(BASE_DIR), Path.cwd()]:
+        candidates.append(anchor / filename)
+        candidates.append(anchor / "data" / filename)
+        for parent in [anchor, *anchor.parents]:
+            candidates.append(parent / filename)
+            candidates.append(parent / "data" / filename)
+
+    seen = set()
+    for p in candidates:
+        key = str(p.resolve()) if p.exists() else str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        if p.exists():
+            return str(p)
+    raise FileNotFoundError(f"Could not find required file: {filename}")
 
 
 CO2_FILE = "DS_CO2_SCOPE_1_Y_2025.xlsx"

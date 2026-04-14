@@ -98,13 +98,24 @@ def data_path(filename: str) -> str:
     Prefers the 'data' subfolder; falls back to the base directory so that
     both script-based and notebook-based execution can work.
     """
-    candidate = os.path.join(DATA_DIR, filename)
-    if os.path.exists(candidate):
-        return candidate
+    from pathlib import Path
 
-    candidate = os.path.join(BASE_DIR, filename)
-    if os.path.exists(candidate):
-        return candidate
+    candidates = []
+    for anchor in [Path(DATA_DIR), Path(BASE_DIR), Path.cwd()]:
+        candidates.append(anchor / filename)
+        candidates.append(anchor / "data" / filename)
+        for parent in [anchor, *anchor.parents]:
+            candidates.append(parent / filename)
+            candidates.append(parent / "data" / filename)
+
+    seen = set()
+    for p in candidates:
+        key = str(p.resolve()) if p.exists() else str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        if p.exists():
+            return str(p)
 
     raise FileNotFoundError(f"Could not find required file: {filename}")
 

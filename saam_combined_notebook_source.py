@@ -51,12 +51,29 @@ os.makedirs(RESULTS_PART2, exist_ok=True)
 
 
 def data_path(filename: str) -> str:
-    candidate = os.path.join(DATA_DIR, filename)
-    if os.path.exists(candidate):
-        return candidate
-    candidate = os.path.join(BASE_DIR, filename)
-    if os.path.exists(candidate):
-        return candidate
+    from pathlib import Path
+
+    candidates = []
+
+    # Start from common anchors.
+    for anchor in [Path(DATA_DIR), Path(BASE_DIR), Path.cwd()]:
+        candidates.append(anchor / filename)
+        candidates.append(anchor / "data" / filename)
+
+        # Walk up parent folders to handle arbitrary notebook launch paths.
+        for parent in [anchor, *anchor.parents]:
+            candidates.append(parent / filename)
+            candidates.append(parent / "data" / filename)
+
+    # De-duplicate while preserving order.
+    seen = set()
+    for p in candidates:
+        key = str(p.resolve()) if p.exists() else str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        if p.exists():
+            return str(p)
     raise FileNotFoundError(f"Could not find required file: {filename}")
 
 
